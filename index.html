@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Agent Loop Replayer — Codex 深度解析</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+        rel="stylesheet" />
+    <link rel="stylesheet" href="style.css" />
+</head>
+
+<body>
+    <!-- Header -->
+    <header class="app-header">
+        <div class="header-left">
+            <div class="logo">
+                <span class="logo-icon">⟳</span>
+                <span class="logo-text">Agent Loop <span class="logo-sub">Replayer</span></span>
+            </div>
+            <div class="header-badges">
+                <span class="badge badge-blue">Thread / Turn / Step</span>
+                <span class="badge badge-purple">Responses API</span>
+                <span class="badge badge-orange">RL 视角</span>
+            </div>
+        </div>
+        <div class="header-right">
+            <span class="header-subtitle">基于 Codex 真实实现的可视化讲解</span>
+            <button class="btn-panel-toggle" id="btn-toggle-right">隐藏细节栏</button>
+            <button class="btn-concept" id="btn-show-concepts">📚 核心概念</button>
+        </div>
+    </header>
+
+    <!-- Concept Overlay -->
+    <div class="overlay" id="concept-overlay" style="display:none;">
+        <div class="overlay-panel">
+            <button class="overlay-close" id="overlay-close">✕</button>
+            <h2>Agent Loop 核心概念</h2>
+            <div class="concept-grid">
+                <div class="concept-card">
+                    <div class="concept-icon">🧵</div>
+                    <h3>Thread（线程/会话）</h3>
+                    <p>用户从打开 Codex 到关闭的整段会话。一个 Thread 可以包含多个 Turn。在 Codex 里，每个 Thread 都有唯一 ID，rollout 日志按 Thread 组织存储在
+                        <code>~/.codex/sessions/</code> 下。</p>
+                    <div class="concept-code">ThreadId = uuid::Uuid</div>
+                </div>
+                <div class="concept-card">
+                    <div class="concept-icon">🔄</div>
+                    <h3>Turn（轮次）</h3>
+                    <p>用户发出一条指令，到 Agent 完成这次任务的完整处理单元。用户视角看到的"一问一答"，但内部可能包含数十个 Step。Turn 是<strong>奖励评估</strong>的自然边界。
+                    </p>
+                    <div class="concept-code">turn_context → response_items → TurnComplete</div>
+                </div>
+                <div class="concept-card">
+                    <div class="concept-icon">⚡</div>
+                    <h3>Step（步骤）</h3>
+                    <p>在一个 Turn 内，模型的每次推理决策。输入是 "当前累计上下文"，输出是 "下一个动作"（工具调用 or 最终答复）。Step 是 <strong>RL 的策略优化单元</strong>。
+                    </p>
+                    <div class="concept-code">state_t → action_t → state_{t+1}</div>
+                </div>
+                <div class="concept-card">
+                    <div class="concept-icon">🤖</div>
+                    <h3>模型输入（Responses API 视角）</h3>
+                    <p>每个 Step 调用模型时的完整输入，包含 4 层：system（平台规则）→ developer（应用规则）→ user（当前请求）→ 历史 tool 结果。随 Step 推进，输入以
+                        <strong>append-only</strong> 方式增长。</p>
+                    <div class="concept-code">{ input: [developer, user, tool_outputs...] }</div>
+                </div>
+                <div class="concept-card">
+                    <div class="concept-icon">🎓</div>
+                    <h3>RL 与 Agent Loop 的关系</h3>
+                    <p>Agent Loop 是 RL 的"运行时环境"：loop 收集轨迹（trajectories），RL 对轨迹打 reward，再反向优化每一个 Step 的动作概率。Step =
+                        (state→action) 决策点。</p>
+                    <div class="concept-code">trajectory = [s0→a0, s1→a1, ..., sn→reward]</div>
+                </div>
+                <div class="concept-card">
+                    <div class="concept-icon">🔧</div>
+                    <h3>Codex 的 Append-Only 策略</h3>
+                    <p>稳态下，Codex 不覆盖旧消息，只追加新增量。切换 Plan/Default 模式时，先更新 session state，下一次 Turn 到来才在 history 里追加新的
+                        developer update item。</p>
+                    <div class="concept-code">s1 = s0 + Δ1, s2 = s1 + Δ2</div>
+                </div>
+            </div>
+            <div class="concept-formula">
+                <div class="formula-title">💡 一张图看懂全局</div>
+                <div class="formula-diagram">
+                    <div class="formula-row">
+                        <span class="fl-label">Thread</span>
+                        <div class="fl-bar fl-thread">
+                            <div class="fl-turn fl-t1">Turn 1<div class="fl-steps">
+                                    <span>S1</span><span>S2</span><span>S3</span></div>
+                            </div>
+                            <div class="fl-turn fl-t2">Turn 2<div class="fl-steps">
+                                    <span>S1</span><span>S2</span><span>S3</span><span>S4</span></div>
+                            </div>
+                            <div class="fl-turn fl-t3">Turn 3<div class="fl-steps"><span>S1</span><span>S2</span></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="formula-row">
+                        <span class="fl-label">RL</span>
+                        <div class="fl-bar fl-rl">
+                            <span class="rl-step">policy(s₀)→a₀</span>
+                            <span class="rl-arrow">→</span>
+                            <span class="rl-step">policy(s₁)→a₁</span>
+                            <span class="rl-arrow">→</span>
+                            <span class="rl-step">reward ↑</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Layout -->
+    <main class="main-layout">
+        <!-- LEFT COLUMN: Thread / Turn list -->
+        <aside class="col-left">
+            <div class="col-header">
+                <span class="col-title">🧵 Thread &amp; Turns</span>
+                <select class="thread-selector" id="thread-selector">
+                    <option value="0">任务 A：修复 Bug</option>
+                    <option value="1">任务 B：添加新功能</option>
+                    <option value="2">任务 C：模式切换演示</option>
+                    <option value="3">任务 D：坏轨迹（反例）</option>
+                </select>
+            </div>
+            <div class="thread-info" id="thread-info"></div>
+            <div class="turns-list" id="turns-list"></div>
+            <div class="left-explain">
+                <div class="explain-title">📌 左栏说明</div>
+                <p>Thread = 整段 Codex 会话。<br />Turn = 一次用户请求的处理单元。<br />点击 Turn 查看详情 →</p>
+            </div>
+        </aside>
+
+        <!-- MIDDLE COLUMN: Step Player -->
+        <section class="col-middle">
+            <div class="col-header">
+                <span class="col-title">⚡ 任务回放器</span>
+                <div class="turn-badge-area" id="turn-badge-area"></div>
+            </div>
+            <div class="playback-strip" id="step-display">
+                <div class="playback-strip-main">
+                    <span class="playback-position" id="playback-position">选择左侧 Turn 开始</span>
+                    <span class="step-type-badge" id="step-type-badge">PLAN</span>
+                    <span class="step-title" id="step-title">等待开始播放</span>
+                </div>
+                <div class="playback-strip-meta">
+                    <span class="mini-summary">
+                        <span class="mini-label">IN</span>
+                        <span class="mini-value" id="step-input-summary">—</span>
+                    </span>
+                    <span class="mini-summary">
+                        <span class="mini-label">OUT</span>
+                        <span class="mini-value" id="step-output-summary">—</span>
+                    </span>
+                </div>
+                <span class="visually-hidden" id="step-desc">等待开始播放</span>
+            </div>
+
+            <!-- Playback Controls -->
+            <div class="playback-controls">
+                <button class="ctrl-btn" id="btn-first" title="第一步">⏮</button>
+                <button class="ctrl-btn" id="btn-prev" title="上一步">◀</button>
+                <button class="ctrl-btn ctrl-play" id="btn-play" title="播放/暂停">▶</button>
+                <button class="ctrl-btn" id="btn-next" title="下一步">▶</button>
+                <button class="ctrl-btn" id="btn-last" title="最后一步">⏭</button>
+                <div class="playback-info">
+                    Frame <span id="step-current">0</span> / <span id="step-total">0</span>
+                </div>
+            </div>
+            <div class="step-slider-wrap">
+                <input type="range" class="step-slider" id="step-slider" min="0" max="0" value="0" />
+            </div>
+
+            <!-- Step Timeline Dots -->
+            <div class="step-timeline" id="step-timeline"></div>
+
+            <!-- Reward Timeline -->
+            <div class="reward-bar-section">
+                <div class="reward-bar-header">
+                    <span class="reward-bar-title">🎯 Reward 时间线（RL 视角）</span>
+                    <span class="reward-bar-hint">当前 step 与奖励节点联动高亮</span>
+                </div>
+                <div class="reward-bar" id="reward-bar"></div>
+                <div class="reward-bar-legend">
+                    <span class="legend-chip legend-step">Step 奖励</span>
+                    <span class="legend-chip legend-milestone">里程碑</span>
+                    <span class="legend-chip legend-turn">Turn 验收</span>
+                    <span class="legend-chip legend-negative">负奖励</span>
+                </div>
+            </div>
+
+            <!-- Cumulative Step History -->
+            <div class="step-history-section">
+                <div class="step-history-header">
+                    <span class="step-history-title">📜 Turn + Step 累积轨迹 <span class="history-badge">append-only + reward</span></span>
+                    <div class="history-reward-summary" id="history-reward-summary"></div>
+                </div>
+                <div class="step-history-list" id="step-history-list"></div>
+            </div>
+
+            <!-- Quiz Popup -->
+            <div class="quiz-popup" id="quiz-popup" style="display:none;">
+                <div class="quiz-title">🤔 互动问答</div>
+                <div class="quiz-question" id="quiz-question"></div>
+                <div class="quiz-options" id="quiz-options"></div>
+                <div class="quiz-answer" id="quiz-answer" style="display:none;"></div>
+            </div>
+        </section>
+
+        <!-- RIGHT COLUMN: Detail Pane -->
+        <aside class="col-right">
+            <div class="col-header">
+                <span class="col-title">🔍 细节分屏</span>
+            </div>
+            <div class="detail-tabs">
+                <button class="tab-btn active" data-tab="model-input">Model Input</button>
+                <button class="tab-btn" data-tab="tool-io">Tool I/O</button>
+                <button class="tab-btn" data-tab="workspace-diff">Workspace Diff</button>
+                <button class="tab-btn" data-tab="reward">Reward</button>
+            </div>
+
+            <!-- Model Input Tab -->
+            <div class="tab-content active" id="tab-model-input">
+                <div class="append-stream-wrap">
+                    <div class="append-stream-title">Append Stream（按模型输入 Item 累积）</div>
+                    <div class="append-stream" id="model-append-stream"></div>
+                </div>
+            </div>
+
+            <!-- Tool I/O Tab -->
+            <div class="tab-content" id="tab-tool-io">
+                <div class="tool-io-display" id="tool-io-display">
+                    <div class="empty-state">请播放到包含工具调用的 Step</div>
+                </div>
+            </div>
+
+            <!-- Workspace Diff Tab -->
+            <div class="tab-content" id="tab-workspace-diff">
+                <div class="diff-display" id="diff-display">
+                    <div class="empty-state">此 Step 无文件变更</div>
+                </div>
+            </div>
+
+            <!-- Reward Tab -->
+            <div class="tab-content" id="tab-reward">
+                <div class="reward-detail" id="reward-detail">
+                    <div class="empty-state">请播放到任意 Step 查看 Reward 细节</div>
+                </div>
+            </div>
+
+        </aside>
+    </main>
+
+    <script src="data.js?v=20260305-bad-track-fix"></script>
+    <script src="app.js?v=20260305-llm-marker-on-last-item"></script>
+</body>
+
+</html>
