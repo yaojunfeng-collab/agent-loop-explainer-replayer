@@ -1229,7 +1229,11 @@ response = client.responses.create(
                             <div class="tl-label">官方示例（第一轮）</div>
                             <pre>const res1 = await client.responses.create({
   model: 'gpt-5',
-  input: 'What is the capital of France?',
+  input: [{
+    type: 'message',
+    role: 'user',
+    content: 'What is the capital of France?'
+  }],
   store: true
 });</pre>
                         </div>
@@ -1237,7 +1241,11 @@ response = client.responses.create(
                             <div class="tl-label">官方示例（第二轮）</div>
                             <pre>const res2 = await client.responses.create({
   model: 'gpt-5',
-  input: 'And its population?',
+  input: [{
+    type: 'message',
+    role: 'user',
+    content: 'And its population?'
+  }],
   previous_response_id: res1.id,
   store: true
 });</pre>
