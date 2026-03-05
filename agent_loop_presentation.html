@@ -1,0 +1,1645 @@
+<!DOCTYPE html>
+<html lang="zh">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Codex Agent Loop 深度解析</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box
+        }
+
+        :root {
+            --bg: #09111f;
+            --bg2: #101a2d;
+            --bg3: #17233a;
+            --bg4: #1f2d47;
+            --border: #2e4265;
+            --blue: #6cb6ff;
+            --green: #5fd08a;
+            --teal: #57d3c7;
+            --gold: #f3c56b;
+            --red: #ff7b72;
+            --text: #edf4ff;
+            --text2: #aab9d4;
+            --shadow: 0 18px 50px rgba(0, 0, 0, .28)
+        }
+
+        body {
+            background:
+                radial-gradient(circle at top right, rgba(87, 211, 199, .12), transparent 28%),
+                radial-gradient(circle at left 20%, rgba(108, 182, 255, .12), transparent 30%),
+                linear-gradient(135deg, #07101c, #0c1627 55%, #0a1321);
+            color: var(--text);
+            font-family: "IBM Plex Sans", "PingFang SC", "Segoe UI", sans-serif;
+            overflow: hidden;
+            height: 100vh
+        }
+
+        #app {
+            display: flex;
+            height: 100vh
+        }
+
+        #sidebar {
+            width: 230px;
+            background: rgba(16, 26, 45, .82);
+            backdrop-filter: blur(10px);
+            border-right: 1px solid var(--border);
+            padding: 22px 0;
+            flex-shrink: 0;
+            overflow-y: auto
+        }
+
+        #sidebar h2 {
+            color: var(--blue);
+            font-size: 12px;
+            padding: 0 16px 12px;
+            letter-spacing: .08em;
+            text-transform: uppercase;
+            opacity: .8
+        }
+
+        .nav-item {
+            padding: 9px 16px;
+            cursor: pointer;
+            font-size: 13px;
+            color: var(--text2);
+            transition: .2s;
+            border-left: 3px solid transparent;
+            display: flex;
+            align-items: center;
+            gap: 8px
+        }
+
+        .nav-item:hover {
+            color: var(--text);
+            background: rgba(255, 255, 255, .03)
+        }
+
+        .nav-item.active {
+            color: var(--blue);
+            border-left-color: var(--blue);
+            background: rgba(108, 182, 255, .08)
+        }
+
+        .nav-num {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: var(--bg3);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 11px;
+            flex-shrink: 0
+        }
+
+        #main {
+            flex: 1;
+            overflow: hidden;
+            position: relative
+        }
+
+        .slide {
+            position: absolute;
+            inset: 0;
+            padding: 38px 56px 86px;
+            overflow-y: auto;
+            opacity: 0;
+            transform: translateY(16px);
+            transition: .35s;
+            pointer-events: none
+        }
+
+        .slide.active {
+            opacity: 1;
+            transform: translateY(0);
+            pointer-events: all
+        }
+
+        h1 {
+            font-size: 36px;
+            font-weight: 700;
+            margin-bottom: 8px;
+            background: linear-gradient(135deg, var(--blue), var(--teal));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent
+        }
+
+        .subtitle {
+            color: var(--text2);
+            font-size: 15px;
+            margin-bottom: 28px
+        }
+
+        h2 {
+            font-size: 22px;
+            font-weight: 600;
+            color: var(--blue);
+            margin-bottom: 14px
+        }
+
+        h3 {
+            font-size: 15px;
+            font-weight: 600;
+            color: var(--teal);
+            margin-bottom: 8px
+        }
+
+        p {
+            color: var(--text2);
+            line-height: 1.72;
+            margin-bottom: 10px;
+            font-size: 14px
+        }
+
+        b {
+            color: var(--text)
+        }
+
+        .card {
+            background: rgba(16, 26, 45, .84);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 18px 18px 16px;
+            margin-bottom: 16px;
+            box-shadow: var(--shadow)
+        }
+
+        .card:hover {
+            border-color: rgba(108, 182, 255, .58);
+            transition: .2s
+        }
+
+        .grid {
+            display: grid;
+            gap: 16px
+        }
+
+        .grid-2 {
+            grid-template-columns: 1fr 1fr
+        }
+
+        .grid-3 {
+            grid-template-columns: 1fr 1fr 1fr
+        }
+
+        .tag {
+            display: inline-block;
+            padding: 3px 10px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 600;
+            margin: 2px
+        }
+
+        .tag-blue {
+            background: rgba(108, 182, 255, .14);
+            color: var(--blue);
+            border: 1px solid rgba(108, 182, 255, .28)
+        }
+
+        .tag-green {
+            background: rgba(95, 208, 138, .14);
+            color: var(--green);
+            border: 1px solid rgba(95, 208, 138, .28)
+        }
+
+        .tag-gold {
+            background: rgba(243, 197, 107, .14);
+            color: var(--gold);
+            border: 1px solid rgba(243, 197, 107, .28)
+        }
+
+        .tag-teal {
+            background: rgba(87, 211, 199, .14);
+            color: var(--teal);
+            border: 1px solid rgba(87, 211, 199, .28)
+        }
+
+        code {
+            background: rgba(255, 255, 255, .05);
+            color: var(--green);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: "IBM Plex Mono", "SFMono-Regular", monospace;
+            font-size: 12px
+        }
+
+        pre {
+            background: rgba(0, 0, 0, .2);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 14px 16px;
+            font-family: "IBM Plex Mono", "SFMono-Regular", monospace;
+            font-size: 12px;
+            line-height: 1.6;
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+            word-break: break-word;
+            overflow-x: hidden;
+            margin-bottom: 12px;
+            color: #d4e2ff
+        }
+
+        .flow {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin: 12px 0
+        }
+
+        .flow-box {
+            background: rgba(255, 255, 255, .03);
+            border: 1px solid var(--border);
+            border-radius: 9px;
+            padding: 8px 12px;
+            font-size: 13px;
+            white-space: nowrap
+        }
+
+        .flow-box.blue {
+            border-color: rgba(108, 182, 255, .45);
+            color: var(--blue)
+        }
+
+        .flow-box.green {
+            border-color: rgba(95, 208, 138, .45);
+            color: var(--green)
+        }
+
+        .flow-box.teal {
+            border-color: rgba(87, 211, 199, .45);
+            color: var(--teal)
+        }
+
+        .flow-box.gold {
+            border-color: rgba(243, 197, 107, .45);
+            color: var(--gold)
+        }
+
+        .flow-box.red {
+            border-color: rgba(255, 123, 114, .45);
+            color: var(--red)
+        }
+
+        .arrow {
+            color: var(--text2);
+            font-size: 16px
+        }
+
+        .layers {
+            display: flex;
+            flex-direction: column;
+            gap: 8px
+        }
+
+        .layer {
+            padding: 11px 14px;
+            border-radius: 9px;
+            border-left: 4px solid;
+            font-size: 13px;
+            line-height: 1.6
+        }
+
+        .layer.sys {
+            background: rgba(255, 123, 114, .08);
+            border-color: var(--red)
+        }
+
+        .layer.dev {
+            background: rgba(108, 182, 255, .08);
+            border-color: var(--blue)
+        }
+
+        .layer.usr {
+            background: rgba(87, 211, 199, .08);
+            border-color: var(--teal)
+        }
+
+        .layer.tool {
+            background: rgba(95, 208, 138, .08);
+            border-color: var(--green)
+        }
+
+        .timeline {
+            position: relative;
+            padding-left: 28px
+        }
+
+        .timeline::before {
+            content: '';
+            position: absolute;
+            left: 10px;
+            top: 0;
+            bottom: 0;
+            width: 2px;
+            background: var(--border)
+        }
+
+        .tl-item {
+            position: relative;
+            margin-bottom: 14px
+        }
+
+        .tl-dot {
+            position: absolute;
+            left: -24px;
+            top: 4px;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            border: 2px solid var(--blue);
+            background: var(--bg)
+        }
+
+        .tl-item.active .tl-dot {
+            background: var(--blue);
+            box-shadow: 0 0 10px rgba(108, 182, 255, .45)
+        }
+
+        .tl-label {
+            font-size: 11px;
+            color: var(--text2);
+            margin-bottom: 4px
+        }
+
+        .tl-content {
+            background: rgba(255, 255, 255, .03);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 10px 12px;
+            font-size: 13px;
+            line-height: 1.6
+        }
+
+        .callout {
+            border-left: 4px solid var(--gold);
+            background: rgba(243, 197, 107, .08);
+            padding: 10px 12px;
+            border-radius: 8px;
+            color: var(--text2);
+            font-size: 13px;
+            line-height: 1.7;
+            margin-top: 8px
+        }
+
+        .metric {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 10px;
+            margin-top: 10px
+        }
+
+        .metric-item {
+            background: rgba(255, 255, 255, .03);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 10px 12px
+        }
+
+        .metric-num {
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--blue)
+        }
+
+        .metric-label {
+            color: var(--text2);
+            font-size: 11px;
+            margin-top: 4px
+        }
+
+        .api-table {
+            display: grid;
+            grid-template-columns: 180px 1fr;
+            gap: 8px 14px;
+            margin-top: 10px
+        }
+
+        .api-k {
+            color: var(--blue);
+            font-family: "IBM Plex Mono", "SFMono-Regular", monospace;
+            font-size: 12px
+        }
+
+        .api-v {
+            color: var(--text2);
+            font-size: 13px;
+            line-height: 1.6
+        }
+
+        .mini-list {
+            list-style: none;
+            margin-top: 8px
+        }
+
+        .mini-list li {
+            color: var(--text2);
+            font-size: 13px;
+            line-height: 1.75;
+            margin-bottom: 4px;
+            padding-left: 14px;
+            position: relative
+        }
+
+        .mini-list li::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 9px;
+            width: 5px;
+            height: 5px;
+            border-radius: 50%;
+            background: var(--teal)
+        }
+
+        #step-demo {
+            margin-top: 16px
+        }
+
+        .step-row {
+            display: flex;
+            align-items: stretch;
+            gap: 12px;
+            margin-bottom: 8px;
+            opacity: .26;
+            transition: .35s
+        }
+
+        .step-row.shown {
+            opacity: 1
+        }
+
+        .step-row.level-thread {
+            margin-left: 0
+        }
+
+        .step-row.level-turn {
+            margin-left: 24px
+        }
+
+        .step-row.level-step {
+            margin-left: 52px
+        }
+
+        .step-row.level-event {
+            margin-left: 82px
+        }
+
+        .step-num {
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, .03);
+            border: 2px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            flex-shrink: 0;
+            margin-top: 1px
+        }
+
+        .step-row.shown .step-num {
+            border-color: var(--blue);
+            color: var(--blue)
+        }
+
+        .step-body {
+            flex: 1;
+            background: rgba(255, 255, 255, .03);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 10px 12px;
+            font-size: 13px;
+            line-height: 1.65
+        }
+
+        .step-row.level-thread .step-body {
+            border-left: 3px solid rgba(108, 182, 255, .6)
+        }
+
+        .step-row.level-turn .step-body {
+            border-left: 3px solid rgba(87, 211, 199, .6)
+        }
+
+        .step-row.level-step .step-body {
+            border-left: 3px solid rgba(95, 208, 138, .6)
+        }
+
+        .step-row.level-event .step-body {
+            border-left: 3px dashed rgba(255, 212, 122, .55);
+            background: rgba(255, 212, 122, .03)
+        }
+
+        .step-role {
+            font-size: 11px;
+            margin-bottom: 2px;
+            font-weight: 600
+        }
+
+        .role-user {
+            color: var(--teal)
+        }
+
+        .role-assistant {
+            color: var(--green)
+        }
+
+        .role-tool {
+            color: var(--gold)
+        }
+
+        .role-dev {
+            color: var(--blue)
+        }
+
+        .signal-tags {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin: 5px 0 4px
+        }
+
+        .signal-tag {
+            display: inline-block;
+            padding: 1px 8px;
+            border-radius: 999px;
+            border: 1px solid var(--border);
+            background: rgba(255, 255, 255, .02);
+            font-size: 11px;
+            color: var(--text2)
+        }
+
+        .signal-tag.llm {
+            border-color: rgba(108, 182, 255, .5);
+            color: var(--blue)
+        }
+
+        .signal-tag.loop {
+            border-color: rgba(95, 208, 138, .5);
+            color: var(--green)
+        }
+
+        .signal-tag.update {
+            border-color: rgba(255, 212, 122, .5);
+            color: var(--gold)
+        }
+
+        .signal-tag.event {
+            border-color: rgba(255, 255, 255, .18);
+            color: var(--text2)
+        }
+
+        .io-struct {
+            margin-top: 6px;
+            display: grid;
+            gap: 4px
+        }
+
+        .io-line {
+            font-size: 12px;
+            color: var(--text2);
+            line-height: 1.6
+        }
+
+        button {
+            background: rgba(255, 255, 255, .03);
+            border: 1px solid var(--border);
+            color: var(--text);
+            padding: 8px 18px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 13px;
+            transition: .2s
+        }
+
+        button:hover {
+            border-color: var(--blue);
+            color: var(--blue)
+        }
+
+        button.primary {
+            background: rgba(108, 182, 255, .12);
+            border-color: rgba(108, 182, 255, .45);
+            color: var(--blue)
+        }
+
+        .rl-box {
+            border: 1px dashed rgba(87, 211, 199, .4);
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 12px;
+            position: relative
+        }
+
+        .rl-label {
+            position: absolute;
+            top: -10px;
+            left: 12px;
+            background: var(--bg);
+            padding: 0 8px;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--teal)
+        }
+
+        .eq {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin: 8px 0;
+            flex-wrap: wrap
+        }
+
+        .eq-item {
+            text-align: center
+        }
+
+        .eq-name {
+            font-size: 11px;
+            color: var(--text2)
+        }
+
+        .eq-val {
+            font-size: 13px;
+            color: var(--text);
+            background: rgba(255, 255, 255, .03);
+            padding: 4px 10px;
+            border-radius: 6px;
+            display: block
+        }
+
+        .eq-arrow {
+            color: var(--text2);
+            font-size: 20px
+        }
+
+        #mode-demo {
+            margin-top: 12px
+        }
+
+        .mode-tabs {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 14px;
+            flex-wrap: wrap
+        }
+
+        .mode-tab {
+            padding: 8px 18px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            cursor: pointer;
+            font-size: 13px;
+            transition: .2s
+        }
+
+        .mode-tab.active {
+            background: rgba(108, 182, 255, .12);
+            border-color: rgba(108, 182, 255, .45);
+            color: var(--blue)
+        }
+
+        .mode-content {
+            background: rgba(255, 255, 255, .03);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 16px;
+            font-size: 13px;
+            line-height: 1.7;
+            display: none
+        }
+
+        .mode-content.active {
+            display: block
+        }
+
+        #nav-btns {
+            position: fixed;
+            bottom: 24px;
+            right: 32px;
+            display: flex;
+            gap: 12px;
+            z-index: 100
+        }
+
+        .ctx-grow {
+            display: flex;
+            align-items: flex-end;
+            gap: 8px;
+            margin: 14px 0;
+            height: 92px
+        }
+
+        .ctx-bar {
+            background: linear-gradient(180deg, var(--blue), var(--teal));
+            border-radius: 5px 5px 0 0;
+            transition: 1s;
+            width: 62px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 11px;
+            font-weight: 700
+        }
+
+        .ctx-label {
+            font-size: 11px;
+            color: var(--text2);
+            text-align: center;
+            margin-top: 4px
+        }
+
+        .small {
+            font-size: 12px;
+            color: var(--text2)
+        }
+
+        .code-flow {
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 14px;
+            background: rgba(255, 255, 255, .02)
+        }
+
+        .cf-center {
+            display: flex;
+            justify-content: center;
+            align-items: center
+        }
+
+        .cf-box {
+            min-width: 210px;
+            text-align: center;
+            padding: 8px 12px;
+            border-radius: 8px;
+            border: 1px solid rgba(108, 182, 255, .4);
+            background: rgba(108, 182, 255, .08);
+            color: var(--blue);
+            font-size: 13px;
+            font-weight: 600
+        }
+
+        .cf-box.teal {
+            border-color: rgba(87, 211, 199, .4);
+            background: rgba(87, 211, 199, .08);
+            color: var(--teal)
+        }
+
+        .cf-box.gold {
+            border-color: rgba(243, 197, 107, .4);
+            background: rgba(243, 197, 107, .08);
+            color: var(--gold)
+        }
+
+        .cf-box.green {
+            border-color: rgba(95, 208, 138, .4);
+            background: rgba(95, 208, 138, .08);
+            color: var(--green)
+        }
+
+        .cf-arrow {
+            text-align: center;
+            color: var(--text2);
+            font-size: 18px;
+            margin: 3px 0
+        }
+
+        .cf-diamond-wrap {
+            display: flex;
+            justify-content: center;
+            margin: 6px 0 10px
+        }
+
+        .cf-diamond {
+            width: 96px;
+            height: 96px;
+            transform: rotate(45deg);
+            border: 1px solid rgba(243, 197, 107, .45);
+            background: rgba(243, 197, 107, .08);
+            display: flex;
+            align-items: center;
+            justify-content: center
+        }
+
+        .cf-diamond span {
+            transform: rotate(-45deg);
+            color: var(--gold);
+            font-size: 12px;
+            font-weight: 700;
+            line-height: 1.2;
+            text-align: center
+        }
+
+        .cf-branch {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 18px;
+            margin-top: 6px
+        }
+
+        .cf-path {
+            border: 1px dashed var(--border);
+            border-radius: 10px;
+            padding: 10px
+        }
+
+        .cf-path-label {
+            font-size: 11px;
+            color: var(--text2);
+            margin-bottom: 8px
+        }
+
+        .cf-mini-arrow {
+            color: var(--text2);
+            text-align: center;
+            font-size: 16px;
+            margin: 2px 0
+        }
+
+        .cf-loopback {
+            margin-top: 8px;
+            text-align: center;
+            font-size: 12px;
+            color: var(--text2)
+        }
+
+        .flowchart-wrap {
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 10px;
+            background: rgba(255, 255, 255, .02)
+        }
+
+        .flowchart-svg {
+            width: 100%;
+            height: auto;
+            display: block
+        }
+
+        @media (max-width: 1100px) {
+            .grid-2,
+            .grid-3,
+            .metric {
+                grid-template-columns: 1fr
+            }
+
+            .cf-branch {
+                grid-template-columns: 1fr
+            }
+
+            .api-table {
+                grid-template-columns: 1fr
+            }
+
+            #sidebar {
+                width: 200px
+            }
+
+            .slide {
+                padding: 28px 28px 82px
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div id="app">
+        <div id="sidebar">
+            <h2>Outline</h2>
+            <div class="nav-item active" onclick="goSlide(0)"><span class="nav-num">1</span>Agent Loop 是什么</div>
+            <div class="nav-item" onclick="goSlide(1)"><span class="nav-num">2</span>Thread · Turn · Step</div>
+            <div class="nav-item" onclick="goSlide(2)"><span class="nav-num">3</span>模型输入与 Responses API</div>
+            <div class="nav-item" onclick="goSlide(3)"><span class="nav-num">4</span>多轮 Thread 演示</div>
+            <div class="nav-item" onclick="goSlide(4)"><span class="nav-num">5</span>RL 与 Loop 的关系</div>
+            <div class="nav-item" onclick="goSlide(5)"><span class="nav-num">6</span>Codex 的配置与 Prompt</div>
+        </div>
+        <div id="main">
+
+            <div class="slide active" id="s0">
+                <h1>Agent Loop</h1>
+                <p class="subtitle">先把它当成一个“围绕模型反复决策的控制循环”，而不是神秘的 AI 黑箱</p>
+                <div class="grid grid-2">
+                    <div class="card">
+                        <h3>一行定义</h3>
+                        <p><b>Agent Loop</b> = 反复整理输入，让模型选择下一步动作；执行后把结果再并回输入，直到任务完成。</p>
+                        <pre>while (!done) {
+  input = 指令 + 历史消息 + 工具结果 + 当前约束
+  action = model(input)
+  if (action 是工具调用) {
+    result = run_tool(action)
+    input.append(result)
+  } else {
+    emit_final_answer(action)
+    done = true
+  }
+}</pre>
+                        <p>工程上看，它就是一个循环编排器；产品上看，它就是“用户给目标，系统自己拆解并推进”。</p>
+                    </div>
+                    <div class="card">
+                        <h3>和普通聊天的差异</h3>
+                        <div class="flow">
+                            <div class="flow-box teal">普通聊天</div>
+                            <div class="arrow">:</div>
+                            <div class="flow-box green">输入一次</div>
+                            <div class="arrow">→</div>
+                            <div class="flow-box green">输出一次</div>
+                        </div>
+                        <div class="flow">
+                            <div class="flow-box blue">Agent Loop</div>
+                            <div class="arrow">:</div>
+                            <div class="flow-box blue">输入 Input</div>
+                            <div class="arrow">→</div>
+                            <div class="flow-box teal">选动作</div>
+                            <div class="arrow">→</div>
+                            <div class="flow-box gold">执行动作</div>
+                            <div class="arrow">→</div>
+                            <div class="flow-box blue">结果并回输入</div>
+                            <div class="arrow">→</div>
+                            <div class="flow-box green">结束</div>
+                        </div>
+                        <div class="callout">
+                            关键不是“会不会思考”，而是它被放进了一个可重复的闭环里。模型负责选动作，宿主程序负责执行动作、记录结果、决定是否继续下一轮。
+                        </div>
+                    </div>
+                </div>
+                <div class="card">
+                    <h3>给工程和产品的共同心智模型</h3>
+                    <div class="metric">
+                        <div class="metric-item">
+                            <div class="metric-num">Input</div>
+                            <div class="metric-label">这一步模型看到的全部输入</div>
+                        </div>
+                        <div class="metric-item">
+                            <div class="metric-num">Action</div>
+                            <div class="metric-label">模型这一步选择做什么</div>
+                        </div>
+                        <div class="metric-item">
+                            <div class="metric-num">Result</div>
+                            <div class="metric-label">动作执行后的输出与反馈</div>
+                        </div>
+                        <div class="metric-item">
+                            <div class="metric-num">Loop</div>
+                            <div class="metric-label">把 Result 并回 Input 再来一轮</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="card">
+                    <h3>Agent Loop（代码示意图）</h3>
+                    <div class="flowchart-wrap">
+                        <svg class="flowchart-svg" viewBox="0 0 1280 520" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Agent loop flowchart">
+                            <defs>
+                                <marker id="arrowHead" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto">
+                                    <polygon points="0,0 10,4 0,8" fill="#9fb3d8" />
+                                </marker>
+                            </defs>
+
+                            <!-- main path -->
+                            <rect x="510" y="20" width="260" height="56" rx="12" fill="rgba(108,182,255,0.10)" stroke="rgba(108,182,255,0.55)" stroke-width="2"/>
+                            <text x="640" y="54" text-anchor="middle" fill="#6cb6ff" font-size="30" font-weight="700">准备输入 Input</text>
+
+                            <line x1="640" y1="76" x2="640" y2="120" stroke="#9fb3d8" stroke-width="3" marker-end="url(#arrowHead)"/>
+
+                            <rect x="500" y="128" width="280" height="56" rx="12" fill="rgba(87,211,199,0.10)" stroke="rgba(87,211,199,0.55)" stroke-width="2"/>
+                            <text x="640" y="162" text-anchor="middle" fill="#57d3c7" font-size="30" font-weight="700">选择动作 Action</text>
+
+                            <line x1="640" y1="184" x2="640" y2="222" stroke="#9fb3d8" stroke-width="3" marker-end="url(#arrowHead)"/>
+
+                            <polygon points="640,222 740,312 640,402 540,312" fill="rgba(243,197,107,0.12)" stroke="rgba(243,197,107,0.58)" stroke-width="2"/>
+                            <text x="640" y="306" text-anchor="middle" fill="#f3c56b" font-size="28" font-weight="700">工具动作？</text>
+
+                            <!-- yes branch -->
+                            <line x1="540" y1="312" x2="330" y2="312" stroke="#9fb3d8" stroke-width="3" marker-end="url(#arrowHead)"/>
+                            <text x="420" y="298" text-anchor="middle" fill="#f3c56b" font-size="24" font-weight="700">YES</text>
+
+                            <rect x="170" y="284" width="160" height="56" rx="12" fill="rgba(243,197,107,0.10)" stroke="rgba(243,197,107,0.55)" stroke-width="2"/>
+                            <text x="250" y="318" text-anchor="middle" fill="#f3c56b" font-size="28" font-weight="700">Run Tool</text>
+
+                            <line x1="250" y1="340" x2="250" y2="392" stroke="#9fb3d8" stroke-width="3" marker-end="url(#arrowHead)"/>
+
+                            <rect x="120" y="398" width="260" height="56" rx="12" fill="rgba(95,208,138,0.10)" stroke="rgba(95,208,138,0.55)" stroke-width="2"/>
+                            <text x="250" y="432" text-anchor="middle" fill="#5fd08a" font-size="28" font-weight="700">Append Tool Result</text>
+
+                            <path d="M 120 426 C 40 426, 40 48, 510 48" fill="none" stroke="#9fb3d8" stroke-width="3" marker-end="url(#arrowHead)"/>
+                            <text x="86" y="210" fill="#aab9d4" font-size="23">下一轮 loop</text>
+
+                            <!-- no branch -->
+                            <line x1="740" y1="312" x2="950" y2="312" stroke="#9fb3d8" stroke-width="3" marker-end="url(#arrowHead)"/>
+                            <text x="860" y="298" text-anchor="middle" fill="#57d3c7" font-size="24" font-weight="700">NO</text>
+
+                            <rect x="950" y="284" width="230" height="56" rx="12" fill="rgba(95,208,138,0.10)" stroke="rgba(95,208,138,0.55)" stroke-width="2"/>
+                            <text x="1065" y="318" text-anchor="middle" fill="#5fd08a" font-size="28" font-weight="700">Final Message</text>
+
+                            <line x1="1065" y1="340" x2="1065" y2="392" stroke="#9fb3d8" stroke-width="3" marker-end="url(#arrowHead)"/>
+
+                            <rect x="950" y="398" width="230" height="56" rx="12" fill="rgba(108,182,255,0.10)" stroke="rgba(108,182,255,0.55)" stroke-width="2"/>
+                            <text x="1065" y="432" text-anchor="middle" fill="#6cb6ff" font-size="28" font-weight="700">Turn Complete</text>
+                        </svg>
+                    </div>
+                    <p class="small">这张图对应代码控制流：<code>if (tool_call) { run; append; continue }</code>，否则 <code>final_message; done</code>。</p>
+                </div>
+            </div>
+
+            <div class="slide" id="s1">
+                <h1>Thread · Turn · Step</h1>
+                <p class="subtitle">把层级和执行逻辑放在一页：Thread 是容器，Turn 是一次用户交互，Step 是 Agent Loop 的一个动作</p>
+                <div class="card">
+                    <h3>一张图讲清楚关系</h3>
+                    <div class="flow">
+                        <div class="flow-box blue">Thread（任务生命周期）</div>
+                        <div class="arrow">→</div>
+                        <div class="flow-box teal">Turn（一次用户交互）</div>
+                        <div class="arrow">→</div>
+                        <div class="flow-box green">Step（Loop 里的动作）</div>
+                    </div>
+                    <pre>Thread（任务生命周期）
+├── Turn 1（用户请求）
+│   ├── Step 1  PLAN
+│   ├── Step 2  TOOL_CALL (run tests)
+│   ├── Step 3  OBSERVE
+│   ├── Step 4  EDIT_CODE
+│   ├── Step 5  TOOL_CALL (rerun tests)
+│   └── Step 6  ANSWER
+├── Turn 2（用户追问）
+│   ├── Step 1  PLAN
+│   ├── Step 2  EDIT_CHANGELOG
+│   ├── Step 3  TOOL_CALL (lint)
+│   └── Step 4  ANSWER
+└── Turn 3 ...</pre>
+                    <div class="callout">
+                        <b>核心口径：</b>Agent Loop 是 <b>Step 层</b>的循环，不是 Turn 层的循环。Turn 是用户可感知的外层边界。
+                    </div>
+                </div>
+                <div class="grid grid-3">
+                    <div class="card">
+                        <h3>Thread</h3>
+                        <span class="tag tag-blue">生命周期容器</span>
+                        <p style="margin-top:8px">承载多轮历史和上下文，可被 <code>thread/start</code>、<code>thread/read</code>、<code>thread/resume</code> 操作。</p>
+                    </div>
+                    <div class="card">
+                        <h3>Turn</h3>
+                        <span class="tag tag-teal">交互边界</span>
+                        <p style="margin-top:8px">一次用户输入触发的一整次 Agent 执行，最终以一个可交付回复收束。</p>
+                    </div>
+                    <div class="card">
+                        <h3>Step</h3>
+                        <span class="tag tag-green">决策粒度</span>
+                        <p style="margin-top:8px">Turn 内一次“看状态并选动作”的迭代。动作可为 plan / tool_call / edit / ask_user / answer。</p>
+                    </div>
+                </div>
+                <div class="card">
+                    <h3>一个 Turn 内，Step 如何循环</h3>
+                    <pre>while task_not_done:
+    step = model_decide_next_action(state)
+
+    if step == TOOL_CALL:
+        observation = run_tool()
+        state.append(observation)
+        continue
+
+    if step == EDIT:
+        modify_workspace()
+        continue
+
+    if step == ASK_USER:
+        break
+
+    if step == ANSWER:
+        break</pre>
+                    <p class="small">这就是 step-level policy loop：Loop 发生在 Step，Turn 只是把这段循环包起来。</p>
+                </div>
+                <div class="card">
+                    <h3>RL 在这三层里的落点</h3>
+                    <ul class="mini-list">
+                        <li><b>state</b>：thread memory + workspace state + tool outputs + current user goal。</li>
+                        <li><b>action</b>：本次 Step 选什么动作（plan / tool_call / edit / ask_user / answer）。</li>
+                        <li><b>reward</b>：通常在 Turn 结束时结算任务质量；再反向优化 Step 决策策略。</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="slide" id="s2">
+                <h1>模型的输入是什么</h1>
+                <p class="subtitle">先看两个具体例子：工具调用时输入/输出是什么，多轮对话时输入/输出是什么</p>
+                <div class="card">
+                    <h3><code>role</code> 与 <code>type</code>（分别列）</h3>
+                    <p class="small"><b>先看字段定义再看例子：</b>这里先给最常见字段，后面例子按这个结构展开。</p>
+                    <div class="grid grid-2">
+                        <div>
+                            <h3 style="font-size:14px;margin-bottom:6px"><code>role</code>（消息是谁发的）</h3>
+                            <div class="api-table">
+                                <div class="api-k"><code>user</code></div>
+                                <div class="api-v">用户输入消息。</div>
+                                <div class="api-k"><code>assistant</code></div>
+                                <div class="api-v">模型输出消息。</div>
+                                <div class="api-k"><code>developer</code></div>
+                                <div class="api-v">开发者规则/策略约束。</div>
+                                <div class="api-k"><code>system</code></div>
+                                <div class="api-v">系统级边界和安全规则。</div>
+                            </div>
+                        </div>
+                        <div>
+                            <h3 style="font-size:14px;margin-bottom:6px"><code>type</code>（这条内容是什么）</h3>
+                            <div class="api-table">
+                                <div class="api-k"><code>message</code></div>
+                                <div class="api-v">自然语言消息体（可带 <code>role</code>）。</div>
+                                <div class="api-k"><code>function_call</code></div>
+                                <div class="api-v">模型请求工具执行（含 <code>name</code>、<code>arguments</code>、<code>call_id</code>）。</div>
+                                <div class="api-k"><code>function_call_output</code></div>
+                                <div class="api-v">工具执行结果，通过 <code>call_id</code> 回填。</div>
+                                <div class="api-k"><code>reasoning</code></div>
+                                <div class="api-v">推理片段（是否展示由产品策略决定）。</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="callout">
+                        <b>阅读顺序：</b>先看 <code>output[]</code> 是不是 <code>function_call</code>；如果是，就执行工具并把 <code>function_call_output</code> 追加进下一次 <code>input[]</code>；如果不是，就通常是 <code>assistant message</code> 收束当前步骤。
+                    </div>
+                </div>
+                <div class="card">
+                    <h3>例子 A：工具调用（单轮内）</h3>
+                    <div class="flow">
+                        <div class="flow-box blue">input_list</div>
+                        <div class="arrow">→</div>
+                        <div class="flow-box blue">responses.create(tools,input)</div>
+                        <div class="arrow">→</div>
+                        <div class="flow-box gold">response.output</div>
+                        <div class="arrow">→</div>
+                        <div class="flow-box green">append function_call_output</div>
+                        <div class="arrow">→</div>
+                        <div class="flow-box teal">再次 responses.create</div>
+                    </div>
+                    <div class="grid grid-2">
+                        <div>
+                            <div class="tl-label">官方示例（function calling，第一段）</div>
+                            <pre>tools = [{
+  "type": "function",
+  "name": "get_horoscope",
+  "description": "Get today's horoscope for an astrological sign.",
+  "parameters": {
+    "type": "object",
+    "properties": { "sign": { "type": "string" } },
+    "required": ["sign"]
+  }
+}]
+
+input_list = [
+  {"role": "user", "content": "What is my horoscope? I am an Aquarius."}
+]
+
+response = client.responses.create(
+  model="gpt-5",
+  tools=tools,
+  input=input_list,
+)
+input_list += response.output</pre>
+                        </div>
+                        <div>
+                            <div class="tl-label">官方示例（append 工具结果并再次请求）</div>
+                            <pre>for item in response.output:
+  if item.type == "function_call":
+    horoscope = get_horoscope(json.loads(item.arguments))
+    input_list.append({
+      "type": "function_call_output",
+      "call_id": item.call_id,
+      "output": json.dumps({"horoscope": horoscope})
+    })
+
+response = client.responses.create(
+  model="gpt-5",
+  instructions="Respond only with a horoscope generated by a tool.",
+  tools=tools,
+  input=input_list,
+)</pre>
+                        </div>
+                    </div>
+                    <p><b>对应官方语义：</b><code>input_list += response.output</code>，再把 <code>function_call_output</code> append 到 <code>input_list</code> 后发下一次 <code>responses.create</code>。</p>
+                </div>
+                <div class="card">
+                    <h3>例子 B：多轮对话（previous_response_id）</h3>
+                    <div class="grid grid-2">
+                        <div>
+                            <div class="tl-label">官方示例（第一轮）</div>
+                            <pre>const res1 = await client.responses.create({
+  model: 'gpt-5',
+  input: 'What is the capital of France?',
+  store: true
+});</pre>
+                        </div>
+                        <div>
+                            <div class="tl-label">官方示例（第二轮）</div>
+                            <pre>const res2 = await client.responses.create({
+  model: 'gpt-5',
+  input: 'And its population?',
+  previous_response_id: res1.id,
+  store: true
+});</pre>
+                        </div>
+                    </div>
+                    <p><b>对应官方语义：</b>第二轮通过 <code>previous_response_id</code> 直接引用上一轮上下文，不需要手动重传全部历史。</p>
+                </div>
+            </div>
+
+            <div class="slide" id="s3">
+                <h1>多轮 Thread 演示</h1>
+                <p class="subtitle">点击“下一步”展示结构化层级：Thread → Turn → Step；Event 作为 Step 下的子层级（仅回填，不计 Step）</p>
+                <div style="display:flex;gap:12px;margin-bottom:12px;align-items:center">
+                    <button class="primary" onclick="nextStep()">下一步</button>
+                    <button onclick="resetDemo()">重置</button>
+                    <span id="step-indicator" style="color:var(--text2);font-size:13px">演示进度 0 / 9</span>
+                </div>
+                <div id="step-demo">
+                    <div class="step-row level-thread" id="sr0">
+                        <div class="step-num">T</div>
+                        <div class="step-body">
+                            <div class="step-role role-dev">[Thread] THREAD 建立</div>
+                            用户打开 Codex，创建一条 thread。此时有基础 prompt、工具清单、当前 cwd 和配置，但还没有具体任务。
+                        </div>
+                    </div>
+                    <div class="step-row level-turn" id="sr1">
+                        <div class="step-num">1</div>
+                        <div class="step-body">
+                            <div class="step-role role-user">[Turn] TURN 1 / 用户</div>
+                            用户消息：<code>帮我找到 User 结构体，并加一个 email 字段</code>
+                        </div>
+                    </div>
+                    <div class="step-row level-step" id="sr2">
+                        <div class="step-num">1a</div>
+                        <div class="step-body">
+                            <div class="step-role role-assistant">[Step] TURN 1 / Step 1</div>
+                            <div class="signal-tags">
+                                <span class="signal-tag llm">LLM 调用 ×1</span>
+                                <span class="signal-tag loop">Loop 迭代 #1</span>
+                            </div>
+                            <div class="io-struct">
+                                <div class="io-line"><b>input[]</b>：<code>{type:"message", role:"user"}</code></div>
+                                <div class="io-line"><b>output[]</b>：<code>{type:"function_call", name:"exec_command", arguments:"rg \"struct User\""}</code></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="step-row level-event" id="sr3">
+                        <div class="step-num">1b</div>
+                        <div class="step-body">
+                            <div class="step-role role-tool">[Event] TURN 1 / tool_output（来自 Step 1）</div>
+                            <div class="signal-tags">
+                                <span class="signal-tag update">上下文回填</span>
+                                <span class="signal-tag event">不计 Step（仅事件）</span>
+                            </div>
+                            <div class="io-struct">
+                                <div class="io-line"><b>append 到 input[]</b>：<code>{type:"function_call_output", call_id:"call_1", output:"found path ..."}</code></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="step-row level-step" id="sr4">
+                        <div class="step-num">1c</div>
+                        <div class="step-body">
+                            <div class="step-role role-assistant">[Step] TURN 1 / Step 2（完成）</div>
+                            <div class="signal-tags">
+                                <span class="signal-tag llm">LLM 调用 ×1</span>
+                                <span class="signal-tag loop">Loop 迭代 #2</span>
+                            </div>
+                            <div class="io-struct">
+                                <div class="io-line"><b>input[]</b>：<code>[{type:"message", role:"user", content:"帮我找到 User 结构体，并加一个 email 字段"}, {type:"function_call_output", call_id:"call_1", output:"found path: app/user.rs"}]</code></div>
+                                <div class="io-line"><b>output[]</b>：<code>{type:"message", role:"assistant", content:"已完成修改"}</code></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="step-row level-turn" id="sr5">
+                        <div class="step-num">2</div>
+                        <div class="step-body">
+                            <div class="step-role role-user">[Turn] TURN 2 / 用户</div>
+                            用户消息：<code>顺便给这个字段补一个简单校验</code>
+                        </div>
+                    </div>
+                    <div class="step-row level-step" id="sr6">
+                        <div class="step-num">2a</div>
+                        <div class="step-body">
+                            <div class="step-role role-assistant">[Step] TURN 2 / Step 1</div>
+                            <div class="signal-tags">
+                                <span class="signal-tag llm">LLM 调用 ×1</span>
+                                <span class="signal-tag loop">Loop 迭代 #1</span>
+                            </div>
+                            <div class="io-struct">
+                                <div class="io-line"><b>input[]</b>：<code>[{type:"message", role:"user", content:"帮我找到 User 结构体，并加一个 email 字段"}, {type:"function_call_output", call_id:"call_1", output:"found path: app/user.rs"}, {type:"message", role:"assistant", content:"已完成修改"}, {type:"message", role:"user", content:"顺便给这个字段补一个简单校验"}]</code></div>
+                                <div class="io-line"><b>output[]</b>：<code>{type:"function_call", name:"exec_command", arguments:"apply patch + run test"}</code></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="step-row level-event" id="sr7">
+                        <div class="step-num">2b</div>
+                        <div class="step-body">
+                            <div class="step-role role-tool">[Event] TURN 2 / tool_output（来自 Step 1）</div>
+                            <div class="signal-tags">
+                                <span class="signal-tag update">上下文回填</span>
+                                <span class="signal-tag event">不计 Step（仅事件）</span>
+                            </div>
+                            <div class="io-struct">
+                                <div class="io-line"><b>append 到 input[]</b>：<code>{type:"function_call_output", call_id:"call_2", output:"diff + test result"}</code></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="step-row level-step" id="sr8">
+                        <div class="step-num">2c</div>
+                        <div class="step-body">
+                            <div class="step-role role-assistant">[Step] TURN 2 / Step 2（完成）</div>
+                            <div class="signal-tags">
+                                <span class="signal-tag llm">LLM 调用 ×1</span>
+                                <span class="signal-tag loop">Loop 迭代 #2</span>
+                            </div>
+                            <div class="io-struct">
+                                <div class="io-line"><b>input[]</b>：<code>[{type:"message", role:"user", content:"帮我找到 User 结构体，并加一个 email 字段"}, {type:"function_call_output", call_id:"call_1", output:"found path: app/user.rs"}, {type:"message", role:"assistant", content:"已完成修改"}, {type:"message", role:"user", content:"顺便给这个字段补一个简单校验"}, {type:"function_call_output", call_id:"call_2", output:"patch applied; tests passed"}]</code></div>
+                                <div class="io-line"><b>output[]</b>：<code>{type:"message", role:"assistant", content:"校验已补上并测试通过"}</code></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="card" style="margin-top:12px">
+                    <p><b>Thread 解决的是连续性，Turn 解决的是任务边界，Step 解决的是决策粒度。</b>这三层拆开后，产品、工程、训练视角就能对齐。</p>
+                    <p class="small" style="margin-top:6px">结构口径：Turn 下有多个 Step；每个 Step 都有 <code>input[]</code> 与 <code>output[]</code>。<code>input[]</code> 采用 append-only 方式累积，<code>function_call_output</code> 作为回填事件被追加到序列末尾。</p>
+                </div>
+            </div>
+
+            <div class="slide" id="s4">
+                <h1>RL 与 Turn / Step 的关系</h1>
+                <p class="subtitle">一句话先讲清：强化学习是在状态下选动作，拿环境反馈与奖励，再优化策略</p>
+                <div class="card">
+                    <h3>一句话理解 RL</h3>
+                    <p><b>强化学习就是：</b>在环境中观察状态（state），根据策略（policy）选择动作（action），环境反馈结果，再根据奖励优化策略。</p>
+                </div>
+                <div class="card">
+                    <h3>RL 的最小闭环</h3>
+                    <pre>State -> Policy -> Action -> Environment -> New State
+                  ↑
+               Reward</pre>
+                    <pre>s_t -> π(a|s) -> a_t -> env -> s_{t+1}
+                   ↓
+                reward</pre>
+                </div>
+                <div class="grid grid-2">
+                    <div class="card">
+                        <h3>代码 Agent 例子（严格对应 Step）</h3>
+                        <p><b>State</b></p>
+                        <pre>当前上下文
+- 用户需求
+- 已写代码
+- 编译/测试结果</pre>
+                        <p><b>Policy</b>：<code>π(a|s)</code>，在当前状态下选动作。</p>
+                        <p><b>Action</b>：<code>write_code / call_tool / finish</code></p>
+                        <p><b>Environment</b>：执行动作后返回新状态（例如编译报错）。</p>
+                        <p><b>Reward</b>：例如 <code>tests pass = +1</code>，<code>tests fail = 0</code>。</p>
+                    </div>
+                    <div class="card">
+                        <h3>数学目标与映射</h3>
+                        <p><b>策略：</b><code>π(a | s)</code></p>
+                        <p><b>目标：</b><code>maximize expected reward</code>，即 <code>max E[R]</code></p>
+                        <div class="api-table" style="margin-top:8px">
+                            <div class="api-k">RL state</div>
+                            <div class="api-v">Agent 当前上下文</div>
+                            <div class="api-k">RL action</div>
+                            <div class="api-v">一个 Step 的动作</div>
+                            <div class="api-k">RL policy</div>
+                            <div class="api-v">LLM 决策策略</div>
+                            <div class="api-k">RL environment</div>
+                            <div class="api-v">tool / code / user 反馈</div>
+                            <div class="api-k">RL reward</div>
+                            <div class="api-v">任务完成质量</div>
+                        </div>
+                        <div class="callout">
+                            <b>结论：</b><code>Step = action</code>，<code>Context = state</code>，<code>Model = policy</code>。
+                        </div>
+                    </div>
+                </div>
+                <div class="card">
+                    <h3>最简总结</h3>
+                    <p><b>根据当前状态，用策略选动作；让环境反馈结果；再根据奖励优化策略。</b></p>
+                </div>
+            </div>
+
+            <div class="slide" id="s5">
+                <h1>Codex 的配置与 Prompt</h1>
+                <p class="subtitle">这部分关注：哪些因素在“决定 loop 怎么跑”</p>
+                <div class="card">
+                    <h3>Code Agent 架构总览（以 Codex 为原型）</h3>
+                    <p class="small">将你的总览图放在这里，和下面“配置 / Prompt / 运行策略”对应阅读。</p>
+                    <img
+                        src="assets/code-agent-architecture-overview.png"
+                        alt="Code Agent 架构总览图"
+                        style="width:100%;height:auto;border-radius:12px;border:1px solid var(--line);background:rgba(255,255,255,.02)"
+                    />
+                </div>
+                <div class="card">
+                    <h3>Context Manager 数据流（Codex 业务）</h3>
+                    <p class="small">输入源如何经由 Context Manager 组装为 API Request，并在 token 压力下触发 handoff 压缩。</p>
+                    <img
+                        src="assets/context-manager-dataflow.png"
+                        alt="Context Manager 数据流图"
+                        style="width:100%;height:auto;border-radius:12px;border:1px solid var(--line);background:rgba(255,255,255,.02)"
+                    />
+                </div>
+                <div class="card">
+                    <h3>实际例子：一个例子串通全流程（修复除零 Bug）</h3>
+                    <p class="small">例子改为：修复除零 Bug。重点看 Turn 启动时如何加载 md 约束、以及 3 个 Step 内 context 如何 append。</p>
+                    <div class="callout">
+                        <b>关键 Item：</b><code>messages（append-only）= 历史已有 items + 本轮 user message + tool_output 回填事件</code>
+                    </div>
+                    <img
+                        src="assets/bugfix-zero-division-flow.png"
+                        alt="修复除零 Bug 的端到端流程图"
+                        style="width:100%;height:auto;border-radius:12px;border:1px solid var(--line);background:rgba(255,255,255,.02);margin:8px 0 12px"
+                    />
+                    <div class="grid grid-2">
+                        <div>
+                            <div class="tl-label">Turn 启动与时间线（Thread 内）</div>
+                            <pre>thread/read
+  - 读取 thread 历史与状态
+
+turn/start
+  - 若携带覆盖参数(cwd/model/approval/sandbox/effort/personality/collaboration_mode)
+    则先执行 OverrideTurnContext
+  - 然后提交 UserInput 开始本轮
+
+Turn 1 用户任务：修复“除零异常”
+  Step 1: 读文件 (shell/cat app/utils.py)
+  Step 2: 打补丁 (apply_patch)
+  Step 3: 跑测试 (shell/pytest tests/ -v)
+  最终: ANSWER（Bug fixed, 4 pass） -> turn/completed
+
+  Context Manager:
+  - 历史消息 append-only
+  - tool output 作为事件回填并 append
+  - turn 结果写回 thread</pre>
+                        </div>
+                        <div>
+                            <div class="tl-label">Codex 实体流程（示意）</div>
+                            <pre>thread/read
+  -> 读取 thread 历史与状态
+
+turn/start
+  -> 携带本轮用户消息 + 运行参数(cwd/model/approval/sandbox)
+
+step loop (turn 内)
+  -> step: tool_call / edit / answer
+  -> event: tool_output 回填
+  -> Context Manager 追加到 messages（append-only）
+
+turn/completed
+  -> 写回本轮结果到 thread</pre>
+                            <div class="callout">
+                                <b>当 token 接近阈值：</b>触发 compact/handoff，把老历史压缩成摘要（保留关键约束、已完成改动、未决问题），再继续后续 Turn。
+                            </div>
+                        </div>
+                    </div>
+                    <ul class="mini-list">
+                        <li><b>不重写旧消息</b>：消息索引持续增长（图中 0→17），历史主干 append-only。</li>
+                        <li><b>启动顺序（代码）</b>：<code>turn/start</code> 有覆盖时先 <code>OverrideTurnContext</code>，再 <code>UserInput</code>。</li>
+                        <li><b>动态组装</b>：每轮都会重建模型可见上下文（见 <code>build_initial_context()</code>）。</li>
+                        <li><b>可恢复</b>：即使中途 handoff 压缩，也保留关键约束与修复结论。</li>
+                    </ul>
+                </div>
+                <div class="grid grid-2">
+                    <div class="card">
+                        <h3>配置层加载顺序</h3>
+                        <div class="timeline">
+                            <div class="tl-item active">
+                                <div class="tl-dot"></div>
+                                <div class="tl-label">admin (macOS MDM)</div>
+                                <div class="tl-content">仅 macOS：受管偏好层（managed preferences）。</div>
+                            </div>
+                            <div class="tl-item active">
+                                <div class="tl-dot"></div>
+                                <div class="tl-label">system</div>
+                                <div class="tl-content">Unix: <code>/etc/codex/config.toml</code>；Windows: <code>%ProgramData%\\OpenAI\\Codex\\config.toml</code>。</div>
+                            </div>
+                            <div class="tl-item active">
+                                <div class="tl-dot"></div>
+                                <div class="tl-label">user</div>
+                                <div class="tl-content"><code>${CODEX_HOME}/config.toml</code></div>
+                            </div>
+                            <div class="tl-item active">
+                                <div class="tl-dot"></div>
+                                <div class="tl-label">cwd / tree / repo</div>
+                                <div class="tl-content">项目层配置：<code>${PWD}/config.toml</code>、父目录 <code>.codex/config.toml</code>、git root 下 <code>.codex/config.toml</code>（不可信目录会标记 disabled）。</div>
+                            </div>
+                            <div class="tl-item active">
+                                <div class="tl-dot"></div>
+                                <div class="tl-label">runtime (session flags)</div>
+                                <div class="tl-content">CLI / UI 覆盖（如 model、approval、sandbox 等）对应 session flags 层。</div>
+                            </div>
+                            <div class="tl-item active">
+                                <div class="tl-dot"></div>
+                                <div class="tl-label">legacy managed_config.toml</div>
+                                <div class="tl-content">兼容层，代码里会 best-effort 叠加到顶部。</div>
+                            </div>
+                        </div>
+                        <p class="small">对应源码：<code>core/src/config_loader/mod.rs::load_config_layers_state()</code>，顺序是“后加覆盖先加”。</p>
+                    </div>
+                    <div class="card">
+                        <h3>模型可见上下文（严格按代码）</h3>
+                        <ul class="mini-list">
+                            <li><b>DeveloperInstructions::from_policy</b>：由 <code>sandbox_policy / approval_policy / exec_policy / cwd</code> 生成。</li>
+                            <li><b>developer_instructions</b>：来自配置或 turn 覆盖（若存在）。</li>
+                            <li><b>collaboration mode 指令</b>：来自 <code>templates/collaboration_mode/default.md|plan.md</code>。</li>
+                            <li><b>memory/apps/commit</b>：按 feature 开关附加对应 developer 指令。</li>
+                            <li><b>UserInstructions</b>：<code># AGENTS.md instructions for ...</code> 形式的 user-role 消息。</li>
+                            <li><b>EnvironmentContext</b>：以结构化 session prefix 消息追加。</li>
+                        </ul>
+                        <div class="callout">
+                            <b>AGENTS 读取规则（代码事实）：</b>从 git root 到 cwd 收集 <code>AGENTS.override.md / AGENTS.md / fallback 文件</code>，拼接后注入 <code>UserInstructions</code>；并非 developer-role 字段。对应 <code>core/src/project_doc.rs</code> + <code>core/src/instructions/user_instructions.rs</code>。
+                        </div>
+                        <p class="small"><b>当前行为限制：</b><code>cwd</code> 改变后不保证自动刷新新的 AGENTS 内容（见 <code>core/tests/suite/model_visible_layout.rs</code> 的相关快照测试）。</p>
+                        <p class="small">对应拼装函数：<code>core/src/codex.rs::build_initial_context()</code>。</p>
+                    </div>
+                </div>
+                <div class="card">
+                    <h3>配置到底影响什么</h3>
+                    <div class="grid grid-3">
+                        <div class="metric-item">
+                            <div class="metric-num" style="font-size:16px">Model</div>
+                            <div class="metric-label">决定能力边界、上下文窗口、可用特性</div>
+                        </div>
+                        <div class="metric-item">
+                            <div class="metric-num" style="font-size:16px">Approval</div>
+                            <div class="metric-label">决定工具是直跑、请求确认还是阻塞</div>
+                        </div>
+                        <div class="metric-item">
+                            <div class="metric-num" style="font-size:16px">Sandbox</div>
+                            <div class="metric-label">决定工具调用的环境权限</div>
+                        </div>
+                    </div>
+                    <div class="grid grid-3" style="margin-top:10px">
+                        <div class="metric-item">
+                            <div class="metric-num" style="font-size:16px">Mode</div>
+                            <div class="metric-label">决定是先计划还是直接推进</div>
+                        </div>
+                        <div class="metric-item">
+                            <div class="metric-num" style="font-size:16px">CWD</div>
+                            <div class="metric-label">决定看见哪个代码树、哪些项目约束</div>
+                        </div>
+                        <div class="metric-item">
+                            <div class="metric-num" style="font-size:16px">Tools</div>
+                            <div class="metric-label">决定这一轮动作空间有多大</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <div id="nav-btns">
+        <button onclick="prevSlide()">上一页</button>
+        <span id="page-num" style="color:var(--text2);font-size:13px;align-self:center">1 / 6</span>
+        <button class="primary" onclick="nextSlide()">下一页</button>
+    </div>
+
+    <script>
+        let cur = 0, stepIdx = 0;
+        const stepTotal = 9;
+        const total = 6;
+
+        function goSlide(n) {
+            document.querySelectorAll('.slide').forEach(s => s.classList.remove('active'));
+            document.querySelectorAll('.nav-item').forEach(s => s.classList.remove('active'));
+            document.getElementById('s' + n).classList.add('active');
+            document.querySelectorAll('.nav-item')[n].classList.add('active');
+            document.getElementById('page-num').textContent = (n + 1) + ' / ' + total;
+            cur = n;
+        }
+
+        function nextSlide() {
+            if (cur < total - 1) goSlide(cur + 1);
+        }
+
+        function prevSlide() {
+            if (cur > 0) goSlide(cur - 1);
+        }
+
+        document.addEventListener('keydown', e => {
+            if (e.key === 'ArrowRight') nextSlide();
+            if (e.key === 'ArrowLeft') prevSlide();
+        });
+
+        function nextStep() {
+            if (stepIdx >= stepTotal) return;
+            document.getElementById('sr' + stepIdx).classList.add('shown');
+            stepIdx++;
+            document.getElementById('step-indicator').textContent = '演示进度 ' + stepIdx + ' / ' + stepTotal + (stepIdx >= stepTotal ? ' 完成' : '');
+        }
+
+        function resetDemo() {
+            stepIdx = 0;
+            document.querySelectorAll('.step-row').forEach(r => r.classList.remove('shown'));
+            document.getElementById('step-indicator').textContent = '演示进度 0 / ' + stepTotal;
+        }
+
+    </script>
+</body>
+
+</html>
